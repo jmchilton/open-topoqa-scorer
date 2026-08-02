@@ -7,6 +7,7 @@ from open_topoqa_scorer.metrics import (
     ranking_loss,
     spearman,
     top_n_hit_rate,
+    top_n_success,
 )
 
 
@@ -47,11 +48,25 @@ def test_ranking_loss_penalizes_wrong_pick():
     assert ranking_loss(pred, true) == 0.8
 
 
-def test_top_n_hit_rate():
+def test_top_n_hit_rate_distinct_answers():
+    # pred ranks decoys 0>1>2>3>4; classes at those ranks are 0,2,0,1,0
     capri = np.array([0, 2, 0, 1, 0])
-    pred = np.array([0.9, 0.8, 0.7, 0.6, 0.5])  # top-2 -> decoys 0,1 -> classes 0,2
-    assert top_n_hit_rate(pred, capri, n=2, threshold=1) == 0.5
-    # top-4 -> 0,1,0,1 -> two hits of four
-    assert top_n_hit_rate(pred, capri, n=4, threshold=1) == 0.5
-    # medium+ threshold in top-2 -> only decoy 1 qualifies
-    assert top_n_hit_rate(pred, capri, n=2, threshold=2) == 0.5
+    pred = np.array([0.9, 0.8, 0.7, 0.6, 0.5])
+    assert top_n_hit_rate(pred, capri, n=3, threshold=1) == approx(1 / 3)  # 0,2,0 -> one hit
+    assert top_n_hit_rate(pred, capri, n=2, threshold=3) == 0.0  # no high-quality in top-2
+    # n beyond the population: denominator clamps to 5 -> two hits (classes 2 and 1)
+    assert top_n_hit_rate(pred, capri, n=99, threshold=1) == approx(2 / 5)
+
+
+def test_top_n_success_is_target_level_indicator():
+    capri = np.array([0, 2, 0, 1, 0])
+    pred = np.array([0.9, 0.8, 0.7, 0.6, 0.5])
+    assert top_n_success(pred, capri, n=2, threshold=1) == 1.0  # decoy 1 (class 2) is in top-2
+    assert top_n_success(pred, capri, n=1, threshold=1) == 0.0  # only decoy 0 (class 0)
+    assert top_n_success(pred, capri, n=5, threshold=3) == 0.0  # no high-quality anywhere
+
+
+def test_top_n_deterministic_on_ties():
+    # equal predictions -> stable argsort picks the lower index for top-1
+    assert top_n_hit_rate([0.5, 0.5], np.array([1, 0]), n=1, threshold=1) == 1.0  # decoy 0, class 1
+    assert top_n_hit_rate([0.5, 0.5], np.array([0, 1]), n=1, threshold=1) == 0.0  # decoy 0, class 0

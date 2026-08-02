@@ -61,7 +61,13 @@ swappable):
 - **Head aggregation** — `concat=False` so 8 heads average back to hidden 32 across both
   layers (rather than 8×32).
 - **Edge reduction before concat** — the pooled edge branch reduces 11 → `edge_out` (default
-  16) before concatenation with the node pool.
+  16) before concatenation with the node pool. Note the edge branch is a fixed map of the raw
+  edge attributes (neither `TransformerConv` nor `GATv2Conv` updates edge features during
+  message passing); a `MLP([h_i, h_j, e_ij])` over the final node states is closer to the
+  paper's wording and strictly more expressive — a candidate to A/B before Phase D.
+- **Dropout sites** — the single paper rate (0.25) is applied at three points: attention
+  dropout inside the conv, feature dropout between layers, and head dropout. `batch_size=32`
+  is likewise not pinned by the paper and interacts with LR 0.005. Both are config knobs.
 
 ## Develop
 

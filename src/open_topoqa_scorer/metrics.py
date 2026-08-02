@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["pearson", "spearman", "ranking_loss", "top_n_hit_rate", "_average_ranks"]
+__all__ = ["pearson", "spearman", "ranking_loss", "top_n_hit_rate", "top_n_success"]
 
 
 def pearson(pred, true) -> float:
@@ -53,16 +53,34 @@ def ranking_loss(pred, true) -> float:
     return float(t.max() - t[picked])
 
 
+def _top_indices(pred, n: int) -> np.ndarray:
+    """Indices of the ``min(n, size)`` highest-scoring decoys (stable, ties by lower index)."""
+    p = np.asarray(pred, dtype=float).ravel()
+    k = min(n, p.size)
+    return np.argsort(-p, kind="stable")[:k]
+
+
 def top_n_hit_rate(pred, capri, n: int = 10, threshold: int = 1) -> float:
     """Fraction of the top-``n`` predicted decoys that are CAPRI-acceptable or better.
 
     ``capri`` is an integer CAPRI class per decoy (0 incorrect, 1 acceptable, 2 medium,
     3 high); ``threshold`` is the minimum class counted as a hit (default 1 = acceptable+).
+    The denominator is ``min(n, num_decoys)`` — for a target with fewer than ``n`` decoys the
+    rate is over what exists (use :func:`top_n_success` for the target-level success metric).
     """
-    p = np.asarray(pred, dtype=float).ravel()
     c = np.asarray(capri).ravel()
-    if p.size == 0:
+    if c.size == 0:
         return 0.0
-    k = min(n, p.size)
-    top = np.argsort(p)[::-1][:k]
-    return float(np.mean(c[top] >= threshold))
+    return float(np.mean(c[_top_indices(pred, n)] >= threshold))
+
+
+def top_n_success(pred, capri, n: int = 10, threshold: int = 1) -> float:
+    """1.0 if *any* of the top-``n`` predicted decoys is CAPRI ``threshold``-or-better, else 0.0.
+
+    This is the per-target success indicator; averaging it across targets gives the
+    top-N success rate reported by the TopoQA/DProQ protocol.
+    """
+    c = np.asarray(capri).ravel()
+    if c.size == 0:
+        return 0.0
+    return float(np.any(c[_top_indices(pred, n)] >= threshold))

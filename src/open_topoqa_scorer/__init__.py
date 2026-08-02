@@ -6,6 +6,7 @@ from open_topoqa_scorer.metrics import (
     ranking_loss,
     spearman,
     top_n_hit_rate,
+    top_n_success,
 )
 from open_topoqa_scorer.model import ProteinGAT
 from open_topoqa_scorer.train import predict, set_seed, train_model
@@ -20,5 +21,6 @@ __all__ = [
     "set_seed",
     "spearman",
     "top_n_hit_rate",
+    "top_n_success",
     "train_model",
 ]

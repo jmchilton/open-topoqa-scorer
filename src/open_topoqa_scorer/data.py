@@ -28,8 +28,19 @@ def graph_from_featurized(feat: dict, y: float | None = None) -> Data:
     if x.numel() == 0:
         x = x.reshape(0, NODE_WIDTH)
 
-    ei = np.asarray(feat["edge_index"], dtype=np.int64).reshape(-1, 2)
-    ea = np.asarray(feat["edge_features"], dtype=np.float32).reshape(-1, EDGE_WIDTH)
+    ei = np.asarray(feat["edge_index"], dtype=np.int64)
+    ea = np.asarray(feat["edge_features"], dtype=np.float32)
+    if ei.size == 0:
+        ei = ei.reshape(0, 2)
+    if ea.size == 0:
+        ea = ea.reshape(0, EDGE_WIDTH)
+    # fail loud on malformed input rather than silently reinterpreting via reshape
+    if ei.ndim != 2 or ei.shape[1] != 2:
+        raise ValueError(f"edge_index must be (E, 2), got {ei.shape}")
+    if ea.shape != (ei.shape[0], EDGE_WIDTH):
+        raise ValueError(
+            f"edge_features must be ({ei.shape[0]}, {EDGE_WIDTH}), got {ea.shape}"
+        )
     if ei.shape[0]:
         # symmetrize: (i,j) and (j,i) share edge attributes
         src = np.concatenate([ei[:, 0], ei[:, 1]])

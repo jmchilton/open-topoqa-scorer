@@ -63,15 +63,17 @@ def train_model(
     loss_fn = torch.nn.MSELoss()
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
 
+    validating = val_set is not None and len(val_set)
     history = {"train_loss": [], "val_loss": []}
     best_val = float("inf")
+    best_epoch = -1
     best_state = copy.deepcopy(model.state_dict())
 
     for epoch in range(epochs):
         train_loss = _epoch(model, train_loader, optimizer, loss_fn)
         history["train_loss"].append(train_loss)
 
-        if val_set is not None and len(val_set):
+        if validating:
             model.eval()
             with torch.no_grad():
                 val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False)
@@ -81,12 +83,20 @@ def train_model(
             history["val_loss"].append(val_loss)
             if val_loss < best_val:
                 best_val = val_loss
+                best_epoch = epoch
                 best_state = copy.deepcopy(model.state_dict())
             if verbose:
                 print(f"epoch {epoch}: train {train_loss:.4f} val {val_loss:.4f}")
         elif verbose:
             print(f"epoch {epoch}: train {train_loss:.4f}")
 
-    if val_set is not None and len(val_set):
+    if validating:
+        if best_epoch < 0:
+            # every val loss was NaN/inf — loading the init would return an untrained model
+            raise RuntimeError(
+                "validation loss never improved on the initial weights (diverged to NaN?); "
+                "no best-validation checkpoint to restore"
+            )
+        history["best_epoch"] = best_epoch
         model.load_state_dict(best_state)
     return model, history

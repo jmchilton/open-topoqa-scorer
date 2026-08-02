@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import torch
 
 from open_topoqa_featurizer import EDGE_WIDTH, NODE_WIDTH
@@ -36,3 +37,18 @@ def test_empty_edge_graph(feat_dict):
     assert data.x.shape == (3, NODE_WIDTH)
     assert data.edge_index.shape == (2, 0)
     assert data.edge_attr.shape == (0, EDGE_WIDTH)
+
+
+def test_malformed_edge_index_rejected(small_graph_feat):
+    # a (2, E) transposed edge_index must fail loud, not be silently reshaped into garbage
+    bad = dict(small_graph_feat)
+    bad["edge_index"] = small_graph_feat["edge_index"].T  # (2, E) instead of (E, 2)
+    with pytest.raises(ValueError, match="edge_index"):
+        graph_from_featurized(bad)
+
+
+def test_mismatched_edge_features_rejected(small_graph_feat):
+    bad = dict(small_graph_feat)
+    bad["edge_features"] = small_graph_feat["edge_features"][:-1]  # one row short
+    with pytest.raises(ValueError, match="edge_features"):
+        graph_from_featurized(bad)
