@@ -35,8 +35,21 @@ is a **non-goal** — the target is a working, open, paper-faithful scorer.
 - ✅ **Red-to-green tests** (18): overfit-a-tiny-batch, forward shape/grad, single-node /
   no-edge graphs, metric unit tests. Hermetic (synthetic graphs; no `mkdssp` needed).
 
-**Not yet done (later phases, see foundry #5):** pipeline proof on the CC-BY benchmark
-(Phase B), the MAF2 training-decoy gate (Phase C), and the full train/eval/ship (Phase D).
+## Status — Phase B (pipeline proof on real CC-BY benchmark data)
+
+- ✅ **Benchmark loader** (`benchmark`): reads the DProQ benchmark (Zenodo 6569837,
+  CC-BY-4.0) — `label_info.csv` (`Target,Model,DockQ,CAPRI`) + `decoy/<TARGET>/<MODEL>*.pdb`
+  (tolerating the `_tidy` filename suffix), featurizes with caching.
+- ✅ **Pipeline proof** (`scripts/phase_b_smoke.py`): featurized 59 real BM55-AF2 decoys
+  (172-dim nodes / 11-dim edges), trained on one target, and **ranked a held-out target's
+  decoys** (5HGG: Spearman +0.46, top-1 ranking-loss 0.007) — the loop learns transferable
+  signal, not just memorization. Not the paper model; a smoke on a slice.
+
+The benchmark data is CC-BY but too large to vendor, so it is git-ignored and pulled locally;
+`tests/test_benchmark.py` exercises the loader on it when present and skips otherwise.
+
+**Not yet done (later phases, see foundry #5):** the MAF2 training-decoy gate (Phase C) and
+the full train/eval/ship (Phase D).
 
 ## Underspecified points made explicit
 
