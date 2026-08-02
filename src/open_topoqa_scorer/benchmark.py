@@ -69,23 +69,41 @@ def load_labels(subset_dir: str, require_files: bool = True) -> list[DecoyLabel]
     return out
 
 
-def featurize_subset(labels, cache_path: str | None = None, progress: bool = False):
+def featurize_subset(
+    labels, cache_path: str | None = None, progress: bool = False, checkpoint_every: int = 50
+):
     """Featurize ``labels`` into PyG graphs (y = DockQ), one per decoy.
 
     Returns ``(graphs, kept_labels)`` — decoys that fail featurization are dropped from both,
     keeping the two lists aligned. Results are cached to ``cache_path`` (torch ``.pt``) when
     given, so re-runs skip the expensive mkdssp + persistent-homology pass.
+
+    The cache is written incrementally (every ``checkpoint_every`` decoys, plus at the end), and
+    the ``(target, model)`` of every *attempted* decoy is recorded — so an interrupted run resumes
+    from its last checkpoint, re-featurizing only the decoys it never reached. A cache that already
+    covers every requested decoy short-circuits the whole pass.
     """
     import torch
 
     from open_topoqa_scorer.data import graph_from_complex
 
+    graphs, kept, done = [], [], set()
     if cache_path and os.path.exists(cache_path):
         blob = torch.load(cache_path, weights_only=False)
-        return blob["graphs"], blob["labels"]
+        graphs, kept = blob["graphs"], blob["labels"]
+        # legacy caches lack "done"; fall back to the kept labels (re-attempts old failures once)
+        done = set(map(tuple, blob.get("done", [(l.target, l.model) for l in kept])))
+        if all((lab.target, lab.model) in done for lab in labels):
+            return graphs, kept
 
-    graphs, kept = [], []
+    def _save():
+        if cache_path:
+            torch.save({"graphs": graphs, "labels": kept, "done": sorted(done)}, cache_path)
+
+    since_save = 0
     for i, lab in enumerate(labels):
+        if (lab.target, lab.model) in done:
+            continue
         if progress:
             print(f"[{i + 1}/{len(labels)}] {lab.target}/{lab.model}", flush=True)
         try:
@@ -94,7 +112,11 @@ def featurize_subset(labels, cache_path: str | None = None, progress: bool = Fal
         except Exception as exc:  # noqa: BLE001 — a bad decoy shouldn't sink the batch
             if progress:
                 print(f"  skipped ({exc})", flush=True)
+        done.add((lab.target, lab.model))
+        since_save += 1
+        if since_save >= checkpoint_every:
+            _save()
+            since_save = 0
 
-    if cache_path:
-        torch.save({"graphs": graphs, "labels": kept}, cache_path)
+    _save()
     return graphs, kept
