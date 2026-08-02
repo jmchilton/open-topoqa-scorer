@@ -23,17 +23,22 @@ is a **non-goal** — the target is a working, open, paper-faithful scorer.
 
 ## Status — Phase A (modeling machinery; not data-gated)
 
-- ✅ **ProteinGAT model** (`model.ProteinGAT`): 2-layer graph-attention encoder with
-  edge-conditioned attention (PyG `TransformerConv`/`GATv2Conv`, `edge_dim=11`), 8 heads,
-  hidden 32, dropout 0.25; node + edge representations mean-pooled separately, concatenated,
-  and passed through an MLP → sigmoid score in [0, 1]. Node in-dim **172**, edge **11**.
+- ✅ **ProteinGAT model** (`model.ProteinGAT`): faithful to the paper (§5.2.5, Eqs 3–9) —
+  edge-conditioned multi-head attention (`TransformerConv`, `edge_dim`) that **updates both
+  node and edge embeddings each layer** (Eq. 6: `e_ij ← Θ_e·[x_i‖x_j‖e_ij]`); the *updated*
+  edges are mean-pooled and reduced to **half the node width** (Eq. 8), concatenated with the
+  mean-pooled nodes, and fed to a **three-linear MLP → sigmoid** (Eq. 9). Node in-dim **172**,
+  edge **11**.
 - ✅ **Data adapter** (`data.graph_from_featurized`): featurizer dict → PyG `Data`
   (symmetrized bidirectional edges, DockQ target).
 - ✅ **Training loop** (`train.train_model`): Adam, MSE vs DockQ, LR 0.005, 200 epochs,
   best-validation selection, seeded.
-- ✅ **Metrics** (`metrics`): ranking loss (top-1), Pearson, Spearman, top-N CAPRI hit rate.
-- ✅ **Red-to-green tests** (18): overfit-a-tiny-batch, forward shape/grad, single-node /
-  no-edge graphs, metric unit tests. Hermetic (synthetic graphs; no `mkdssp` needed).
+- ✅ **Metrics** (`metrics`): ranking loss (top-1), Pearson, Spearman, top-N CAPRI hit rate +
+  target-level success rate.
+- ✅ **Red-to-green tests** (32): overfit-a-tiny-batch (+ a node-path-isolating variant),
+  edge-update gradient/perturbation, batched-vs-solo on uneven edges, best-val restore +
+  divergence guard, paper-structural invariants, metric unit tests. Hermetic where possible;
+  a real-`mkdssp` benchmark test runs when the data is present.
 
 ## Status — Phase B (pipeline proof on real CC-BY benchmark data)
 
@@ -41,9 +46,10 @@ is a **non-goal** — the target is a working, open, paper-faithful scorer.
   CC-BY-4.0) — `label_info.csv` (`Target,Model,DockQ,CAPRI`) + `decoy/<TARGET>/<MODEL>*.pdb`
   (tolerating the `_tidy` filename suffix), featurizes with caching.
 - ✅ **Pipeline proof** (`scripts/phase_b_smoke.py`): featurized 59 real BM55-AF2 decoys
-  (172-dim nodes / 11-dim edges), trained on one target, and **ranked a held-out target's
-  decoys** (5HGG: Spearman +0.46, top-1 ranking-loss 0.007) — the loop learns transferable
-  signal, not just memorization. Not the paper model; a smoke on a slice.
+  (172-dim nodes / 11-dim edges), trained on one target (3SE8: train Spearman +0.76), and
+  produced per-target rankings on a held-out target. This is a **smoke** that the pipeline
+  featurizes real decoys and the loop trains + ranks — a single held-out target is far too
+  noisy to compare architectures or estimate accuracy (that waits for full training, Phase D).
 
 The benchmark data is CC-BY but too large to vendor, so it is git-ignored and pulled locally;
 `tests/test_benchmark.py` exercises the loader on it when present and skips otherwise.
@@ -51,23 +57,28 @@ The benchmark data is CC-BY but too large to vendor, so it is git-ignored and pu
 **Not yet done (later phases, see foundry #5):** the MAF2 training-decoy gate (Phase C) and
 the full train/eval/ship (Phase D).
 
-## Underspecified points made explicit
+## What the paper fixes vs. what we choose (clean-room)
 
-The paper does not fully pin the attention block; these are our documented choices (config,
-swappable):
+The paper's Methods (§5.2.5) **do** pin the model *structure*, and the implementation follows
+it exactly:
 
-- **Conv variant** — default `TransformerConv` (graph-transformer framing); `GATv2Conv`
-  available via `conv="gatv2"`. Both condition attention on the 11-dim edge attributes.
-- **Head aggregation** — `concat=False` so 8 heads average back to hidden 32 across both
-  layers (rather than 8×32).
-- **Edge reduction before concat** — the pooled edge branch reduces 11 → `edge_out` (default
-  16) before concatenation with the node pool. Note the edge branch is a fixed map of the raw
-  edge attributes (neither `TransformerConv` nor `GATv2Conv` updates edge features during
-  message passing); a `MLP([h_i, h_j, e_ij])` over the final node states is closer to the
-  paper's wording and strictly more expressive — a candidate to A/B before Phase D.
-- **Dropout sites** — the single paper rate (0.25) is applied at three points: attention
-  dropout inside the conv, feature dropout between layers, and head dropout. `batch_size=32`
-  is likewise not pinned by the paper and interacts with LR 0.005. Both are config knobs.
+- **Edge-updating attention** (Eqs 3, 6) — attention uses `x_i, x_j, e_ij`, and **edges are
+  updated every layer** from the two updated endpoint embeddings + the previous edge. Neither
+  stock PyG conv updates edges, so it is an explicit per-layer module.
+- **Readout** (Eqs 7–9) — pool the *updated* edges (not raw attrs); reduce to **half the node
+  width**; concat with pooled nodes; **three-linear MLP**; sigmoid. Loss is **MSE** vs DockQ.
+
+The paper states **no** values for the training/capacity hyperparameters (grep-confirmed: no
+number given for layers, heads, hidden/edge width, dropout, optimizer, learning rate, epochs,
+or batch size). These are therefore **our tunable choices**, *not* paper-derived — pulled from
+common practice and to be tuned on validation, never claimed as reproductions of the paper:
+
+- node-attention sublayer `TransformerConv` (default; `GATv2Conv` via `conv="gatv2"`),
+  `heads=8` averaged back to `hidden=32` (`concat=False`), `edge_hidden=16`, `num_layers=2`,
+  `dropout=0.25`; training `Adam`, `lr=0.005`, `200` epochs, `batch_size=32`.
+- A prior clean-room source for reasonable defaults is DProQA's gated graph transformer (a
+  separate, cited paper) — TopoQA reuses its train/val/test split but not, as stated, its
+  hyperparameters.
 
 ## Develop
 

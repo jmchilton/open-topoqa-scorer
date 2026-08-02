@@ -38,11 +38,15 @@ def test_gradients_flow_including_edge_branch(small_graph_feat):
     out = model(graph_from_featurized(small_graph_feat, y=0.4))
     loss = torch.nn.functional.mse_loss(out, torch.tensor([0.4]))
     loss.backward()
-    # gradient must reach BOTH the node encoder and the edge branch, not just "some param"
-    assert model.node_encoder.weight.grad is not None
-    assert torch.any(model.node_encoder.weight.grad != 0)
-    assert model.edge_reducer.weight.grad is not None
-    assert torch.any(model.edge_reducer.weight.grad != 0)
+    # gradient must reach the node encoder AND the full edge path (encode -> per-layer update
+    # (Eq. 6) -> pooled projection), not just "some param somewhere"
+    for name, param in [
+        ("node_encoder", model.node_encoder.weight),
+        ("edge_encoder", model.edge_encoder.weight),
+        ("edge_update[0]", model.edge_updates[0].weight),
+        ("edge_pool_proj", model.edge_pool_proj.weight),
+    ]:
+        assert param.grad is not None and torch.any(param.grad != 0), f"no gradient at {name}"
 
 
 def test_edge_features_change_the_score(small_graph_feat):
@@ -70,7 +74,23 @@ def test_batched_matches_per_graph_with_uneven_edges(feat_dict):
     assert torch.allclose(solo, batched, atol=1e-5)
 
 
-def test_hyperparameters_match_paper_spec():
+def test_paper_structural_invariants():
+    # these ARE mandated by the paper (§5.2.5, Eqs 6-9), independent of tunable widths
+    model = ProteinGAT(hidden=24, num_layers=3, edge_hidden=10)
+    # an edge-update module per layer (Eq. 6)
+    assert len(model.edge_updates) == len(model.convs) == 3
+    # pooled edge dim is half the node dim (Eq. 8)
+    assert model.edge_pool_dim == 12
+    assert model.edge_pool_proj.out_features == 12
+    # readout MLP has exactly three linear layers (Eq. 9)
+    linears = [m for m in model.head if isinstance(m, torch.nn.Linear)]
+    assert len(linears) == 3
+    # edge-conditioned attention: the conv consumes the edge embedding
+    assert model.convs[0].edge_dim == 10
+
+
+def test_config_defaults_are_our_tunable_choices():
+    # NOT paper values (the paper states none) — pin them so config drift is caught
     model = ProteinGAT()
     assert len(model.convs) == 2
     assert model.convs[0].heads == 8
