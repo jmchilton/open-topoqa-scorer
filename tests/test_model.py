@@ -34,6 +34,20 @@ def test_single_node_no_edge_graph(feat_dict):
     assert torch.isfinite(out).all()
 
 
+def test_batch_with_trailing_empty_graph_scores_all(feat_dict):
+    # an out-of-contact decoy featurizes to 0 interface nodes; batched with it LAST, pooling must
+    # still emit one score per graph (inferring size from batch.max()+1 would drop it -> shape (2,))
+    graphs = [
+        graph_from_featurized(feat_dict(4, [(0, 1), (1, 2)], seed=1), y=0.8),
+        graph_from_featurized(feat_dict(3, [(0, 2)], seed=2), y=0.6),
+        graph_from_featurized(feat_dict(0, [], seed=3), y=0.0),  # empty interface, DockQ≈0
+    ]
+    batch = next(iter(DataLoader(graphs, batch_size=3)))
+    out = ProteinGAT().eval()(batch)
+    assert out.shape == (3,)
+    assert torch.isfinite(out).all()
+
+
 def test_gradients_flow_including_edge_branch(small_graph_feat):
     model = ProteinGAT().train()
     out = model(graph_from_featurized(small_graph_feat, y=0.4))

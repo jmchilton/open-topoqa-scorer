@@ -109,11 +109,17 @@ class ProteinGAT(nn.Module):
             e = F.relu(edge_update(torch.cat([x[src], x[dst], e], dim=-1)))
             e = F.dropout(e, p=self.dropout, training=self.training)
 
-        node_pool = global_mean_pool(x, batch)  # Eq. 7
+        # Explicit graph count so a graph with no interface nodes (an out-of-contact decoy, a
+        # legitimate DockQ≈0 example) still gets a row — inferring size from batch.max()+1 would
+        # silently drop trailing empty graphs and misalign predictions against the targets.
+        size = getattr(data, "num_graphs", None)
+        if size is None:
+            size = int(batch.max()) + 1 if batch.numel() else 1
+        node_pool = global_mean_pool(x, batch, size=size)  # Eq. 7 (empty graph -> zero row)
         # Eq. 8: pool updated edges (a graph with no edges pools to zeros), reduce to half node
         # dim. Projecting the pooled vector (not branching to raw zeros) makes an edgeless graph's
         # edge feature the projection bias consistently in solo and batched forwards.
-        edge_pool = global_mean_pool(e, batch[src], size=node_pool.size(0))
+        edge_pool = global_mean_pool(e, batch[src], size=size)
         edge_pool = self.edge_pool_proj(edge_pool)
 
         out = self.head(torch.cat([node_pool, edge_pool], dim=-1)).squeeze(-1)  # Eq. 9
