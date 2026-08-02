@@ -9,5 +9,6 @@ dist/
 zenodo/
 data/
 checkpoints/
+cache/
 *.pt
 *.pth
