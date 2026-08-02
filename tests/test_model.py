@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 import torch
 from torch_geometric.loader import DataLoader
@@ -93,7 +94,7 @@ def test_config_defaults_are_our_tunable_choices():
     # NOT paper values (the paper states none) — pin them so config drift is caught
     model = ProteinGAT()
     assert len(model.convs) == 2
-    assert model.convs[0].heads == 8
+    assert model.convs[0].heads == 4
     assert model.convs[0].out_channels == 32  # hidden width, concat=False
     assert model.convs[0].concat is False
     assert abs(model.dropout - 0.25) < 1e-9
@@ -105,6 +106,54 @@ def test_config_defaults_are_our_tunable_choices():
     sig = inspect.signature(train_model)
     assert sig.parameters["lr"].default == 0.005
     assert sig.parameters["epochs"].default == 200
+
+
+def test_edge_update_feeds_readout_uses_updated_not_initial_edges(feat_dict):
+    # The commit's headline behavior: the readout pools the *updated* edges (Eq. 6 -> 8), not the
+    # initial edge encoding. With a SINGLE layer the post-conv edge update feeds ONLY the readout
+    # (no later conv consumes it), so zeroing it must move the score. If the readout wrongly pooled
+    # the initial encoding, edge_updates[0] would be dead and the score would not change.
+    model = ProteinGAT(num_layers=1).eval()
+    data = graph_from_featurized(feat_dict(4, [(0, 1), (1, 2), (2, 3)], seed=2))
+    base = model(data).clone()
+    with torch.no_grad():
+        model.edge_updates[0].weight.zero_()
+        model.edge_updates[0].bias.zero_()
+    assert not torch.allclose(base, model(data))
+
+
+def test_attention_consumes_edges_independent_of_readout_branch(small_graph_feat):
+    # Zero the readout edge branch so edges can influence the score ONLY through attention (Eq. 3).
+    # Perturbing edge_attr must still move the output -> the conv genuinely consumes edge features
+    # (kills a mutation that drops the edge embedding fed into attention).
+    model = ProteinGAT().eval()
+    with torch.no_grad():
+        model.edge_pool_proj.weight.zero_()
+        model.edge_pool_proj.bias.zero_()
+    data = graph_from_featurized(small_graph_feat)
+    base = model(data).clone()
+    # perturb a SINGLE directed edge (not a uniform shift, which softmax would wash out) so the
+    # attention distribution genuinely changes; the only route left to the score is the conv.
+    data.edge_attr[0] = data.edge_attr[0] + 5.0
+    assert not torch.allclose(base, model(data))
+
+
+def test_mean_pooling_invariant_to_duplication(feat_dict):
+    # Eqs 7-8 pool with 1/|V| and 1/|E| (MEAN). Two disjoint copies of the same graph leave every
+    # mean-pooled quantity unchanged, so the score must not move; global_add_pool would double the
+    # pooled node/edge vectors and change it. Pins mean- (not sum-) pooling.
+    base = feat_dict(3, [(0, 1), (1, 2)], seed=7)
+    n = base["node_features"].shape[0]
+    dup = {
+        "node_ids": base["node_ids"] + [("B", (" ", i, " ")) for i in range(n)],
+        "node_features": np.concatenate([base["node_features"], base["node_features"]], axis=0),
+        "edge_index": np.concatenate([base["edge_index"], base["edge_index"] + n], axis=0),
+        "edge_features": np.concatenate([base["edge_features"], base["edge_features"]], axis=0),
+    }
+    model = ProteinGAT().eval()
+    one = model(graph_from_featurized(base))
+    two = model(graph_from_featurized(dup))
+    assert torch.allclose(one, two, atol=1e-5)
 
 
 def test_bad_conv_rejected():

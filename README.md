@@ -6,7 +6,8 @@ MIT-licensed. Consumes the interface graphs emitted by
 [`open-topoqa-featurizer`](https://github.com/jmchilton/open-topoqa-featurizer).
 
 **Provenance.** The model architecture and training protocol are reproduced **from the
-paper and its supplement** — **not** from the upstream code, which is unlicensed
+paper** (arXiv 2410.17815 / bbaf083, including its supplementary tables S1–S11) — **not**
+from the upstream code, which is unlicensed
 (`yubingapril/TopoQA`) and was **not read, cloned, or decompiled**. Architectures and
 training recipes are not copyrightable; this independent implementation is ours, MIT.
 Part of the [bio-topo-foundry](https://github.com/jmchilton/bio-topo-foundry) cleanroom
@@ -24,7 +25,8 @@ is a **non-goal** — the target is a working, open, paper-faithful scorer.
 ## Status — Phase A (modeling machinery; not data-gated)
 
 - ✅ **ProteinGAT model** (`model.ProteinGAT`): faithful to the paper (§5.2.5, Eqs 3–9) —
-  edge-conditioned multi-head attention (`TransformerConv`, `edge_dim`) that **updates both
+  additive edge-conditioned multi-head attention (`GATv2Conv`, `edge_dim`; the faithful reading
+  of Eq. 3's `σ(W_s x_i + W_t x_j + W_e e_ij)`) that **updates both
   node and edge embeddings each layer** (Eq. 6: `e_ij ← Θ_e·[x_i‖x_j‖e_ij]`); the *updated*
   edges are mean-pooled and reduced to **half the node width** (Eq. 8), concatenated with the
   mean-pooled nodes, and fed to a **three-linear MLP → sigmoid** (Eq. 9). Node in-dim **172**,
@@ -68,13 +70,16 @@ it exactly:
 - **Readout** (Eqs 7–9) — pool the *updated* edges (not raw attrs); reduce to **half the node
   width**; concat with pooled nodes; **three-linear MLP**; sigmoid. Loss is **MSE** vs DockQ.
 
-The paper states **no** values for the training/capacity hyperparameters (grep-confirmed: no
-number given for layers, heads, hidden/edge width, dropout, optimizer, learning rate, epochs,
-or batch size). These are therefore **our tunable choices**, *not* paper-derived — pulled from
-common practice and to be tuned on validation, never claimed as reproductions of the paper:
+Neither the paper's main text nor its supplementary tables (S1–S11, which are results/ablation
+tables) states **any** value for the training/capacity hyperparameters — no number for layers,
+heads, hidden/edge width, dropout, optimizer, learning rate, epochs, or batch size (only the
+**MSE** loss is pinned, §5.2.5). These are therefore **our tunable choices**, *not* paper-derived
+— pulled from common practice and to be tuned on validation, never claimed as reproductions:
 
-- node-attention sublayer `TransformerConv` (default; `GATv2Conv` via `conv="gatv2"`),
-  `heads=8` averaged back to `hidden=32` (`concat=False`), `edge_hidden=16`, `num_layers=2`,
+- node-attention sublayer `GATv2Conv` (default, the additive Eq. 3 form; `TransformerConv` via
+  `conv="transformer"` is a dot-product **divergence**, offered only as a knob),
+  `heads=4` averaged back to `hidden=32` (`concat=False`; GATv2's additive attention is
+  seed-unstable at `heads=8` on small graphs, so 4 is the default), `edge_hidden=16`, `num_layers=2`,
   `dropout=0.25`; training `Adam`, `lr=0.005`, `200` epochs, `batch_size=32`.
 - A prior clean-room source for reasonable defaults is DProQA's gated graph transformer (a
   separate, cited paper) — TopoQA reuses its train/val/test split but not, as stated, its

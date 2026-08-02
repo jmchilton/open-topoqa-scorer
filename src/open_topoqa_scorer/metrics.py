@@ -78,7 +78,7 @@ def top_n_success(pred, capri, n: int = 10, threshold: int = 1) -> float:
     """1.0 if *any* of the top-``n`` predicted decoys is CAPRI ``threshold``-or-better, else 0.0.
 
     This is the per-target success indicator; averaging it across targets gives the
-    top-N success rate reported by the TopoQA/DProQ protocol.
+    top-N success rate reported by the TopoQA/DProQA protocol.
     """
     c = np.asarray(capri).ravel()
     if c.size == 0:

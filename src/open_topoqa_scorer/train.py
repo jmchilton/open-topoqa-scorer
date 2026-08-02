@@ -1,7 +1,8 @@
 """Training loop for the ProteinGAT scorer.
 
-Paper spec: Adam, MSE against the DockQ target, LR 0.005, up to 200 epochs, best-validation
-checkpoint selection. Deterministic given a seed.
+Paper spec is only the loss: **MSE** against the DockQ target (§5.2.5). The optimizer (Adam),
+learning rate (0.005), epoch budget (200), and best-validation checkpoint selection are OUR
+tunable choices — the paper states no value for them. Deterministic given a seed.
 """
 
 from __future__ import annotations

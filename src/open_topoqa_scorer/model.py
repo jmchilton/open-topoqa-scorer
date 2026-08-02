@@ -5,8 +5,11 @@ the upstream code, which is unlicensed and was never read. What the paper actual
 
 * A custom ``ProteinGAT`` layer using **multi-head attention that updates BOTH node and edge
   embeddings**. The attention coefficient c_ij is computed from ``x_i``, ``x_j`` and the edge
-  embedding ``e_ij`` (Eq. 3), so this is edge-conditioned attention — PyG ``TransformerConv``
-  (default) / ``GATv2Conv`` provide exactly the node-update half.
+  embedding ``e_ij`` (Eq. 3): an **additive** score over three weight matrices W_s, W_t, W_e,
+  normalized by softmax over N(i) ∪ {i} (Eqs 4–5). PyG ``GATv2Conv`` implements exactly this
+  additive, edge-conditioned form (hence the **default**, matching the paper's "GAT"). PyG
+  ``TransformerConv`` (``conv="transformer"``) is offered as a knob but uses *dot-product*
+  attention — a deliberate divergence from Eq. 3, not a faithful reproduction.
 * **Edges are updated every layer** (Eq. 6): ``e_ij^(l+1) = Θ_e·[x_i^(l+1) ‖ x_j^(l+1) ‖
   e_ij^(l)]`` — a learned map of the two *updated* endpoint embeddings and the previous edge
   embedding. Neither stock PyG conv does this, so it is an explicit per-layer module here.
@@ -46,11 +49,11 @@ class ProteinGAT(nn.Module):
         node_dim: int = NODE_WIDTH,
         edge_dim: int = EDGE_WIDTH,
         hidden: int = 32,
-        heads: int = 8,
+        heads: int = 4,
         num_layers: int = 2,
         dropout: float = 0.25,
         edge_hidden: int = 16,
-        conv: str = "transformer",
+        conv: str = "gatv2",
     ):
         super().__init__()
         if conv not in _CONVS:
@@ -66,11 +69,14 @@ class ProteinGAT(nn.Module):
             conv_cls(hidden, hidden, heads=heads, concat=False, edge_dim=edge_hidden, dropout=dropout)
             for _ in range(num_layers)
         )
-        # Eq. 6: per-layer edge update from the two updated node embeddings + previous edge
+        # Eq. 6: per-layer edge update from the two updated node embeddings + previous edge.
+        # The paper writes a bare projection Θ_e·[·]; the ReLU + dropout wrapped around it in
+        # forward() are OURS (regularization), not part of Eq. 6.
         self.edge_updates = nn.ModuleList(
             nn.Linear(2 * hidden + edge_hidden, edge_hidden) for _ in range(num_layers)
         )
-        # Eq. 8: reduce pooled edge embedding to half the node width
+        # Eq. 8: reduce pooled edge embedding to half the node width. Paper's W_pool is a bare
+        # matrix; the bias here is ours (it is what an edgeless graph's edge feature collapses to).
         self.edge_pool_proj = nn.Linear(edge_hidden, self.edge_pool_dim)
         # Eq. 9: MLP with three stacked linear layers
         self.head = nn.Sequential(
