@@ -24,19 +24,32 @@ def load_combined_labels(
     dockground_extract_dir: str | None = None,
     require_files: bool = True,
 ) -> list[DecoyLabel]:
-    """MAF2 + Dockground decoys as one list. Either source may be omitted (pass ``None``)."""
-    labels: list[DecoyLabel] = []
+    """MAF2 + Dockground decoys as one list. Either source may be omitted (pass ``None``).
+
+    The two corpora use different target-id namespaces (MAF2 dir stems, Dockground lowercase PDB
+    ids). Downstream clustering ([[split]]) and per-target ranking ([[evaluate]]) key on the target
+    *string*, so a collision would silently fuse two distinct complexes into one target. That
+    doesn't happen today (casing differs), but we assert disjointness rather than rely on the
+    accident — a real collision raises here instead of corrupting the split/eval.
+    """
+    maf2_labels: list[DecoyLabel] = []
     if maf2_dir:
-        labels.extend(load_maf2_labels(maf2_dir, require_files=require_files))
+        maf2_labels = load_maf2_labels(maf2_dir, require_files=require_files)
+    dg_labels: list[DecoyLabel] = []
     if dockground_tgz_dir:
         if not dockground_extract_dir:
             raise ValueError("dockground_extract_dir is required when dockground_tgz_dir is given")
-        labels.extend(
-            load_dockground_labels(
-                dockground_tgz_dir, dockground_extract_dir, require_files=require_files
-            )
+        dg_labels = load_dockground_labels(
+            dockground_tgz_dir, dockground_extract_dir, require_files=require_files
         )
-    return labels
+
+    clash = {lab.target for lab in maf2_labels} & {lab.target for lab in dg_labels}
+    if clash:
+        raise ValueError(
+            f"MAF2 and Dockground share {len(clash)} target id(s) (e.g. {sorted(clash)[:3]}); "
+            "combining would fuse distinct complexes — disambiguate the namespaces first"
+        )
+    return maf2_labels + dg_labels
 
 
 def capri_counts(labels) -> dict:

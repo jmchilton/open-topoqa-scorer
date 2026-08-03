@@ -63,6 +63,18 @@ def main() -> None:
     va_graphs, va_kept = featurize_subset(
         val_s, cache_path=os.path.join(args.out_dir, "val_graphs.pt"), progress=True
     )
+
+    # Surface attrition explicitly and refuse a gutted corpus — a large silent drop (e.g. the
+    # historical DSSP-on-decoys fault) otherwise looks like a smaller-but-fine result and would
+    # train on near-nothing. Re-running self-heals transient faults (featurize_subset retries).
+    for name, sampled, kept in (("train", train_s, tr_graphs), ("val", val_s, va_graphs)):
+        rate = len(kept) / len(sampled) if sampled else 1.0
+        print(f"  {name}: kept {len(kept)}/{len(sampled)} ({rate:.0%})", flush=True)
+        if sampled and rate < 0.5:
+            raise SystemExit(
+                f"ABORT: {name} featurization kept only {rate:.0%} of {len(sampled)} decoys — "
+                "likely an environment fault (mkdssp?). Fix it and re-run; the cache resumes."
+            )
     print(f"done: {len(tr_graphs)} train / {len(va_graphs)} val graphs cached in {args.out_dir}", flush=True)
 
 

@@ -29,3 +29,13 @@ def test_dockground_extract_dir_required(monkeypatch):
     monkeypatch.setattr(C, "load_maf2_labels", lambda d, require_files=True: [])
     with pytest.raises(ValueError):
         C.load_combined_labels(maf2_dir=None, dockground_tgz_dir="tgz")  # no extract dir
+
+
+def test_target_id_collision_between_sources_raises(monkeypatch):
+    # same target string in both corpora -> would fuse two complexes; must be rejected loudly
+    monkeypatch.setattr(C, "load_maf2_labels", lambda d, require_files=True: [_lab("1abc", 0)])
+    monkeypatch.setattr(
+        C, "load_dockground_labels", lambda t, e, require_files=True: [_lab("1abc", 1)]
+    )
+    with pytest.raises(ValueError, match="share"):
+        C.load_combined_labels("maf2", "tgz", "extract")

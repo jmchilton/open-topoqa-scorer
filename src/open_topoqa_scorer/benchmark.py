@@ -75,48 +75,59 @@ def featurize_subset(
     """Featurize ``labels`` into PyG graphs (y = DockQ), one per decoy.
 
     Returns ``(graphs, kept_labels)`` — decoys that fail featurization are dropped from both,
-    keeping the two lists aligned. Results are cached to ``cache_path`` (torch ``.pt``) when
+    keeping the two lists index-aligned. Results are cached to ``cache_path`` (torch ``.pt``) when
     given, so re-runs skip the expensive mkdssp + persistent-homology pass.
 
-    The cache is written incrementally (every ``checkpoint_every`` decoys, plus at the end), and
-    the ``(target, model)`` of every *attempted* decoy is recorded — so an interrupted run resumes
-    from its last checkpoint, re-featurizing only the decoys it never reached. A cache that already
-    covers every requested decoy short-circuits the whole pass.
+    The skip set is derived from the *successfully kept* decoys only, so the cache is written
+    incrementally (every ``checkpoint_every`` decoys, plus at the end) yet a re-run **re-attempts
+    every decoy that failed or was never reached** — a run that dropped decoys to a transient fault
+    (broken mkdssp, OOM) self-heals on the next run rather than freezing the failure into the cache.
+    A cache that already covers every requested decoy short-circuits the whole pass. Note the cache
+    is bound to the label set it was built from: reusing one ``cache_path`` with a *different* label
+    set returns the cache's own (possibly superset) contents, not a set filtered to ``labels``.
     """
     import torch
 
     from open_topoqa_scorer.data import graph_from_complex
 
-    graphs, kept, done = [], [], set()
+    graphs, kept = [], []
     if cache_path and os.path.exists(cache_path):
         blob = torch.load(cache_path, weights_only=False)
         graphs, kept = blob["graphs"], blob["labels"]
-        # legacy caches lack "done"; fall back to the kept labels (re-attempts old failures once)
-        done = set(map(tuple, blob.get("done", [(l.target, l.model) for l in kept])))
-        if all((lab.target, lab.model) in done for lab in labels):
-            return graphs, kept
+    kept_keys = {(lab.target, lab.model) for lab in kept}  # skip only what actually succeeded
+    if all((lab.target, lab.model) in kept_keys for lab in labels):
+        return graphs, kept
 
     def _save():
         if cache_path:
-            torch.save({"graphs": graphs, "labels": kept, "done": sorted(done)}, cache_path)
+            torch.save({"graphs": graphs, "labels": kept, "done": sorted(kept_keys)}, cache_path)
 
-    since_save = 0
+    attempted = failed = since_save = 0
     for i, lab in enumerate(labels):
-        if (lab.target, lab.model) in done:
+        key = (lab.target, lab.model)
+        if key in kept_keys:
             continue
+        attempted += 1
         if progress:
             print(f"[{i + 1}/{len(labels)}] {lab.target}/{lab.model}", flush=True)
         try:
             graphs.append(graph_from_complex(lab.pdb_path, y=lab.dockq))
             kept.append(lab)
+            kept_keys.add(key)
         except Exception as exc:  # noqa: BLE001 — a bad decoy shouldn't sink the batch
+            failed += 1
             if progress:
                 print(f"  skipped ({exc})", flush=True)
-        done.add((lab.target, lab.model))
         since_save += 1
         if since_save >= checkpoint_every:
             _save()
             since_save = 0
 
     _save()
+    if progress:
+        print(
+            f"featurize_subset: kept {len(kept)}/{len(labels)} "
+            f"({attempted} attempted this run, {failed} failed)",
+            flush=True,
+        )
     return graphs, kept
