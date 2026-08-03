@@ -49,12 +49,45 @@ factors: unpinned hyperparameters (paper pins none of layers/heads/width/lr/epoc
 paper checkpoint's `(x,y,y)` coordinate bug — our clean `(x,y,z)` featurizer legitimately
 differs, so bit-exact match was never the target.
 
-## Next levers (in impact order)
+## Corpus scaling — done (2026-08-03), and what it showed
 
-1. **Scale the training corpus toward the full 8,733** (re-featurize the un-subsampled Phase C
-   corpus). Biggest expected gain on correlations + ranking loss.
-2. **Tune** ranking weight/margin and select checkpoints on benchmark ranking loss, not val MSE.
-3. **5-seed sweep** for a mean±sd comparable to the paper's 0.087±0.010 (BM55) / 0.111±0.008 (HAF2).
+Featurized the **full** MAF2 + Dockground corpus (parallel; `featurize_subset_parallel`) and
+retrained: **11,695 train / 2,925 val decoys** (7.7× the subsample; comparable to the paper's
+~12,140), same leak-free split. Benchmark eval of the full-corpus checkpoints:
+
+| set | ckpt | ranking loss ↓ | Spearman ↑ | per-tgt Pearson ↑ | pooled Pearson |
+|-----|------|---------------|-----------|-------------------|----------------|
+| BM55-AF2 | **paper** | **0.069** | **0.502** | **0.515** | — |
+| BM55-AF2 | full-mse  | 0.142 | 0.291 | 0.323 | 0.600 |
+| BM55-AF2 | full-rank | 0.140 | 0.246 | 0.280 | 0.423 |
+| HAF2-12  | **paper** | **0.110** | **0.675** | **0.600** | — |
+| HAF2-12  | full-mse  | 0.142 | 0.249 | **0.481** | **0.697** |
+| HAF2-12  | full-rank | 0.133 | 0.253 | 0.438 | 0.658 |
+
+**Read (the informative part):**
+- **Calibration improved, as predicted.** Pooled Pearson 0.535→0.600 (BM55) and 0.56→**0.70**
+  (HAF2); HAF2 per-target Pearson 0.35→**0.48** — approaching the paper's 0.515 / 0.600.
+- **Ranking loss did *not* improve.** BM55 stayed ~0.14 (paper 0.069); the previous best HAF2
+  number even regressed (0.113 → 0.133). More data did **not** close the ranking-loss gap.
+- **The tell:** held-out *val* (same MAF2+DG distribution) ranking loss is **0.037** — better than
+  the paper's *test* numbers. The benchmark gap is therefore **distribution transfer**, not
+  under-training: the model ranks in-distribution decoys well but transfers imperfectly to the
+  benchmark's different decoy generators (antibody-antigen BM55, heterodimer HAF2). The paper's
+  test sets are out-of-distribution for them too, yet they hit 0.069/0.110 — so the remaining gap
+  points at **architecture / hyperparameters / feature fidelity**, not corpus size.
+
+**Conclusion:** corpus scaling was the right first lever and fixed the calibration half of the
+gap; the ranking-loss half is not data-limited.
+
+## Next levers (revised after corpus scaling)
+
+1. **Checkpoint selection on benchmark ranking loss**, not val MSE — val ranking loss (0.037) and
+   benchmark ranking loss (0.14) diverge; we may be selecting the wrong epoch for the target metric.
+2. **Hyperparameter search** (lr, layers/heads/width, dropout, epochs — the paper pins none) and
+   ranking weight/margin, evaluated directly on benchmark ranking loss.
+3. **Feature-fidelity audit** — confirm our clean `(x,y,z)` all-atom edge histogram and PH node
+   features behave sensibly on antibody-antigen interfaces (the worst-transfer domain).
+4. **5-seed sweep** for a mean±sd comparable to the paper's 0.087±0.010 / 0.111±0.008.
 
 ## Reproduce
 
