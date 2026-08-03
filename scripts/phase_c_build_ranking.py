@@ -18,7 +18,12 @@ import os
 import torch
 
 from open_topoqa_scorer.benchmark import featurize_subset
-from open_topoqa_scorer.corpus import capri_counts, load_combined_labels, subset_for_ranking
+from open_topoqa_scorer.corpus import (
+    capri_counts,
+    is_dockground_target,
+    load_combined_labels,
+    subset_for_ranking,
+)
 from open_topoqa_scorer.split import split_by_clusters
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -77,7 +82,7 @@ def main() -> None:
     train_s = subset_for_ranking(train, args.dg_cap, args.maf2_train_targets, seed=args.seed)
     val_s = subset_for_ranking(val, args.dg_cap, args.maf2_val_targets, seed=args.seed)
     for name, s in (("train", train_s), ("val", val_s)):
-        n_dg = len({l.target for l in s if l.target[0].isdigit()})
+        n_dg = len({l.target for l in s if is_dockground_target(l.target)})
         print(f"  {name}: {len(s)} decoys / {len({l.target for l in s})} targets "
               f"({n_dg} Dockground) | CAPRI {capri_counts(s)}", flush=True)
 
