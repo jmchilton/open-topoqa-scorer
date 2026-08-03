@@ -61,6 +61,16 @@ class ProteinGAT(nn.Module):
         self.dropout = dropout
         self.edge_pool_dim = hidden // 2  # paper: pooled edge dim = half pooled node dim
 
+        # Input standardization (our engineering choice; the paper is silent). The 140 topological
+        # node features and the edge distances are unnormalized and span 2–3 orders of magnitude more
+        # than the one-hot/SS/SASA features (|max| ~700 vs ~1), which saturates the encoders and blocks
+        # fine within-target discrimination. These buffers z-score the inputs; identity until fitted
+        # via set_feature_stats(), and they travel with the checkpoint (registered buffers).
+        self.register_buffer("x_mean", torch.zeros(node_dim))
+        self.register_buffer("x_inv_std", torch.ones(node_dim))
+        self.register_buffer("e_mean", torch.zeros(edge_dim))
+        self.register_buffer("e_inv_std", torch.ones(edge_dim))
+
         self.node_encoder = nn.Linear(node_dim, hidden)
         self.edge_encoder = nn.Linear(edge_dim, edge_hidden)
 
@@ -89,6 +99,19 @@ class ProteinGAT(nn.Module):
             nn.Linear(self.edge_pool_dim, 1),
         )
 
+    @torch.no_grad()
+    def set_feature_stats(self, x_mean, x_std, e_mean, e_std, eps: float = 1e-3) -> None:
+        """Set the input-standardization buffers from per-feature train statistics.
+
+        ``*_std`` is floored at ``eps`` so a constant feature (std 0) maps its deviations to 0
+        rather than exploding. Call once before training; the buffers persist in ``state_dict``.
+        """
+        as_t = lambda v: torch.as_tensor(v, dtype=torch.float32)
+        self.x_mean.copy_(as_t(x_mean))
+        self.x_inv_std.copy_(1.0 / as_t(x_std).clamp_min(eps))
+        self.e_mean.copy_(as_t(e_mean))
+        self.e_inv_std.copy_(1.0 / as_t(e_std).clamp_min(eps))
+
     def forward(self, data) -> torch.Tensor:
         """Return one predicted score per graph, shape ``(num_graphs,)`` in [0, 1]."""
         x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
@@ -97,6 +120,8 @@ class ProteinGAT(nn.Module):
             batch = x.new_zeros(x.size(0), dtype=torch.long)
         src, dst = edge_index  # (0,)-length slices when a graph/batch has no edges
 
+        x = (x - self.x_mean) * self.x_inv_std  # standardize (identity until fitted)
+        edge_attr = (edge_attr - self.e_mean) * self.e_inv_std
         x = F.relu(self.node_encoder(x))
         e = F.relu(self.edge_encoder(edge_attr))  # (E, edge_hidden); (0, edge_hidden) if no edges
 

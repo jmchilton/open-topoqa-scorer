@@ -21,6 +21,7 @@ from collections import defaultdict
 import torch
 from torch_geometric.loader import DataLoader
 
+from open_topoqa_scorer.data import feature_stats
 from open_topoqa_scorer.losses import within_target_ranking_loss
 from open_topoqa_scorer.model import ProteinGAT
 
@@ -99,6 +100,7 @@ def train_model(
     seed: int = 0,
     model_kwargs: dict | None = None,
     verbose: bool = False,
+    normalize: bool = True,
     ranking_weight: float = 0.0,
     ranking_margin: float = 0.1,
     ranking_deadband: float = 0.02,
@@ -117,6 +119,8 @@ def train_model(
     """
     set_seed(seed)
     model = ProteinGAT(**(model_kwargs or {}))
+    if normalize and len(train_set):
+        model.set_feature_stats(*feature_stats(train_set))
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     mse_fn = torch.nn.MSELoss()
 

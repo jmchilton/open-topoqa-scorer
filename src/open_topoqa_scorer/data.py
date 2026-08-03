@@ -14,7 +14,29 @@ from torch_geometric.data import Data
 
 from open_topoqa_featurizer import EDGE_WIDTH, NODE_WIDTH
 
-__all__ = ["graph_from_featurized", "graph_from_complex"]
+__all__ = ["graph_from_featurized", "graph_from_complex", "feature_stats"]
+
+
+def feature_stats(graphs):
+    """Per-feature ``(x_mean, x_std, e_mean, e_std)`` over a list of PyG graphs.
+
+    Node stats pool all nodes; edge stats pool all (directed) edges. Empty graphs contribute
+    nothing; if no graph has nodes/edges the corresponding stats default to mean 0 / std 1 (a
+    no-op standardization). Used to fit :meth:`ProteinGAT.set_feature_stats`.
+    """
+    xs = [g.x for g in graphs if g.x.numel()]
+    es = [g.edge_attr for g in graphs if g.edge_attr.numel()]
+    if xs:
+        xc = torch.cat(xs, 0)
+        x_mean, x_std = xc.mean(0), xc.std(0)
+    else:
+        x_mean, x_std = torch.zeros(NODE_WIDTH), torch.ones(NODE_WIDTH)
+    if es:
+        ec = torch.cat(es, 0)
+        e_mean, e_std = ec.mean(0), ec.std(0)
+    else:
+        e_mean, e_std = torch.zeros(EDGE_WIDTH), torch.ones(EDGE_WIDTH)
+    return x_mean, x_std, e_mean, e_std
 
 
 def graph_from_featurized(feat: dict, y: float | None = None) -> Data:

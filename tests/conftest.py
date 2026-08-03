@@ -6,8 +6,20 @@ E×11) so the data/model layers can be exercised without a real complex.
 
 import numpy as np
 import pytest
+import torch
 
 from open_topoqa_featurizer import EDGE_WIDTH, NODE_WIDTH
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_rng():
+    """Seed RNGs before every test so model-init-sensitive assertions are order-independent.
+
+    Several model tests build an unseeded ``ProteinGAT`` and assert a perturbation moves the output;
+    without a fixed seed the init depends on what earlier tests drew, making them flaky in-suite.
+    """
+    torch.manual_seed(0)
+    np.random.seed(0)
 
 
 def _feat_dict(n_nodes, edges, seed=0):
