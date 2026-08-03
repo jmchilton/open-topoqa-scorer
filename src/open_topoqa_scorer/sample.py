@@ -18,7 +18,7 @@ from __future__ import annotations
 import random
 from collections import defaultdict
 
-__all__ = ["stratified_sample"]
+__all__ = ["stratified_sample", "sample_by_target"]
 
 
 def _quotas(sizes: dict, n: int) -> dict:
@@ -63,4 +63,27 @@ def stratified_sample(labels, n: int, seed: int = 0, key=lambda lab: lab.capri) 
     for k in sorted(strata, key=str):  # stable stratum order for reproducibility
         group = sorted(strata[k], key=lambda lab: (lab.target, lab.model))
         out.extend(rng.sample(group, quota[k]))
+    return out
+
+
+def sample_by_target(labels, decoys_per_target: int, seed: int = 0, key=lambda lab: lab.capri) -> list:
+    """Keep every target, capping each at ``decoys_per_target`` decoys.
+
+    Unlike :func:`stratified_sample` (which samples individual decoys and shreds within-target decoy
+    sets), this preserves whole targets — the structure within-target *ranking* needs. A target with
+    at most ``decoys_per_target`` decoys is kept entirely; a larger one is thinned via
+    :func:`stratified_sample` on its own decoys (stratified by ``key``, default CAPRI class) so the
+    kept subset still spans the target's quality gradient, near-native included. Deterministic.
+    """
+    by_target: dict = defaultdict(list)
+    for lab in labels:
+        by_target[lab.target].append(lab)
+
+    out: list = []
+    for i, target in enumerate(sorted(by_target)):
+        group = by_target[target]
+        if len(group) <= decoys_per_target:
+            out.extend(group)
+        else:
+            out.extend(stratified_sample(group, decoys_per_target, seed=seed * 100003 + i, key=key))
     return out
