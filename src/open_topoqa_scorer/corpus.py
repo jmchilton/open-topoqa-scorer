@@ -9,13 +9,23 @@ together in the split, which is the intended behaviour (a shared structure must 
 
 from __future__ import annotations
 
+import random
+import re
 from collections import Counter
 
 from open_topoqa_scorer.benchmark import DecoyLabel
 from open_topoqa_scorer.dockground import load_dockground_labels
+from open_topoqa_scorer.sample import sample_by_target
 from open_topoqa_scorer.training_data import load_maf2_labels
 
-__all__ = ["load_combined_labels", "capri_counts"]
+__all__ = ["load_combined_labels", "capri_counts", "is_dockground_target", "subset_for_ranking"]
+
+_DG_TARGET = re.compile(r"[0-9][a-z0-9]{3}")
+
+
+def is_dockground_target(target: str) -> bool:
+    """True for a Dockground target id (lowercase 4-char PDB id) vs a MAF2 dir stem."""
+    return bool(_DG_TARGET.fullmatch(target))
 
 
 def load_combined_labels(
@@ -55,3 +65,21 @@ def load_combined_labels(
 def capri_counts(labels) -> dict:
     """CAPRI-class histogram ``{class: count}`` (for logging split/sample balance)."""
     return dict(sorted(Counter(lab.capri for lab in labels).items()))
+
+
+def subset_for_ranking(labels, dg_cap: int, maf2_n_targets: int, seed: int = 0) -> list[DecoyLabel]:
+    """Corpus tuned for within-target ranking: whole targets, deep on Dockground.
+
+    Keeps **every** Dockground target (capped at ``dg_cap`` decoys each, CAPRI-stratified so the
+    quality gradient survives) for ranking depth, plus a seeded sample of ``maf2_n_targets`` MAF2
+    targets kept whole (their ~2 models each) for absolute-DockQ breadth and easy pairs. Operates on
+    one split side; call separately for train and val. Deterministic.
+    """
+    dg = [lab for lab in labels if is_dockground_target(lab.target)]
+    maf2 = [lab for lab in labels if not is_dockground_target(lab.target)]
+
+    dg_kept = sample_by_target(dg, dg_cap, seed=seed)
+    maf2_targets = sorted({lab.target for lab in maf2})
+    chosen = set(random.Random(seed).sample(maf2_targets, min(maf2_n_targets, len(maf2_targets))))
+    maf2_kept = [lab for lab in maf2 if lab.target in chosen]
+    return dg_kept + maf2_kept

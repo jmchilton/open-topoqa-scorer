@@ -36,25 +36,38 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--cache-dir", default=os.path.join(_ROOT, "cache"))
     p.add_argument("--out-dir", default=os.path.join(_ROOT, "checkpoints"))
+    p.add_argument("--train-cache", default="train_graphs.pt")
+    p.add_argument("--val-cache", default="val_graphs.pt")
     p.add_argument("--epochs", type=int, default=200)
     p.add_argument("--lr", type=float, default=0.005)
     p.add_argument("--conv", default="gatv2")
     p.add_argument("--heads", type=int, default=4)
     p.add_argument("--seeds", type=int, nargs="+", default=[0])
+    p.add_argument("--ranking-weight", type=float, default=0.0, help=">0 adds within-target ranking loss")
+    p.add_argument("--ranking-margin", type=float, default=0.1)
     args = p.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
 
-    tr_g, _ = _load(os.path.join(args.cache_dir, "train_graphs.pt"))
-    va_g, va_l = _load(os.path.join(args.cache_dir, "val_graphs.pt"))
-    print(f"train {len(tr_g)} graphs / val {len(va_g)} graphs", flush=True)
+    tr_g, tr_l = _load(os.path.join(args.cache_dir, args.train_cache))
+    va_g, va_l = _load(os.path.join(args.cache_dir, args.val_cache))
+    print(f"train {len(tr_g)} graphs / val {len(va_g)} graphs "
+          f"| ranking_weight {args.ranking_weight}", flush=True)
     model_kwargs = {"conv": args.conv, "heads": args.heads}
+    rank_kw = {}
+    if args.ranking_weight > 0:
+        rank_kw = {
+            "ranking_weight": args.ranking_weight,
+            "ranking_margin": args.ranking_margin,
+            "train_targets": [lab.target for lab in tr_l],
+            "val_targets": [lab.target for lab in va_l],
+        }
 
     best = None
     for seed in args.seeds:
         print(f"\n=== seed {seed} ===", flush=True)
         model, history = train_model(
             tr_g, va_g, epochs=args.epochs, lr=args.lr, seed=seed,
-            model_kwargs=model_kwargs, verbose=True,
+            model_kwargs=model_kwargs, verbose=True, **rank_kw,
         )
         val_metrics = _evaluate(model, va_g, va_l)
         best_val = min(history["val_loss"])
