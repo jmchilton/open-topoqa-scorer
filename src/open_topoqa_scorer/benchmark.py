@@ -31,14 +31,23 @@ class DecoyLabel:
 
 
 def resolve_decoy_path(subset_dir: str, target: str, model: str) -> str | None:
-    """Path to a decoy PDB, tolerating the ``_tidy`` (and other) filename suffixes."""
-    base = os.path.join(subset_dir, "decoy", target)
-    for cand in (f"{model}.pdb", f"{model}_tidy.pdb"):
-        p = os.path.join(base, cand)
-        if os.path.exists(p):
-            return p
-    hits = sorted(glob.glob(os.path.join(base, f"{model}*.pdb")))
-    return hits[0] if hits else None
+    """Path to a decoy PDB, tolerating the ``_tidy`` (and other) filename suffixes.
+
+    Decoys sit directly under ``decoy/<TARGET>/`` (BM55-AF2) or one level down in a
+    ``pdb/`` subfolder (HAF2); both layouts are searched.
+    """
+    for base in (
+        os.path.join(subset_dir, "decoy", target),
+        os.path.join(subset_dir, "decoy", target, "pdb"),
+    ):
+        for cand in (f"{model}.pdb", f"{model}_tidy.pdb"):
+            p = os.path.join(base, cand)
+            if os.path.exists(p):
+                return p
+        hits = sorted(glob.glob(os.path.join(base, f"{model}*.pdb")))
+        if hits:
+            return hits[0]
+    return None
 
 
 def load_labels(subset_dir: str, require_files: bool = True) -> list[DecoyLabel]:

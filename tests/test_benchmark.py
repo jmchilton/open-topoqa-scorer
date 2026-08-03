@@ -44,6 +44,17 @@ def test_resolve_decoy_path_handles_tidy_suffix():
     assert os.path.basename(resolved).startswith(lab.model)
 
 
+@pytest.mark.parametrize("nested", [False, True])
+def test_resolve_decoy_path_finds_both_layouts(tmp_path, nested):
+    # BM55-AF2 stores decoy/<TARGET>/<MODEL>.pdb; HAF2 nests it under a pdb/ subfolder.
+    base = tmp_path / "decoy" / "T1"
+    (base / "pdb" if nested else base).mkdir(parents=True)
+    dst = (base / "pdb" if nested else base) / "modelA.pdb"
+    dst.write_text("ATOM\n")
+    resolved = resolve_decoy_path(str(tmp_path), "T1", "modelA")
+    assert resolved == str(dst)
+
+
 def test_single_real_decoy_featurizes():
     from open_topoqa_scorer.data import graph_from_complex
 
