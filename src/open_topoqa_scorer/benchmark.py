@@ -18,7 +18,14 @@ import glob
 import os
 from dataclasses import dataclass
 
-__all__ = ["DecoyLabel", "load_labels", "resolve_decoy_path", "featurize_subset", "restrict_to_labels"]
+__all__ = [
+    "DecoyLabel",
+    "load_labels",
+    "resolve_decoy_path",
+    "featurize_subset",
+    "featurize_subset_parallel",
+    "restrict_to_labels",
+]
 
 
 @dataclass(frozen=True)
@@ -153,6 +160,82 @@ def featurize_subset(
         print(
             f"featurize_subset: kept {len(kept)}/{len(labels)} "
             f"({attempted} attempted this run, {failed} failed)",
+            flush=True,
+        )
+    return graphs, kept
+
+
+def _featurize_one(lab):
+    """Worker: featurize a single decoy. Top-level + import-inside so it pickles to a subprocess.
+
+    Returns ``(lab, graph)`` on success or ``(lab, None)`` on any failure — a bad decoy must not
+    crash the pool.
+    """
+    from open_topoqa_scorer.data import graph_from_complex
+
+    try:
+        return lab, graph_from_complex(lab.pdb_path, y=lab.dockq)
+    except Exception:  # noqa: BLE001 — a bad decoy shouldn't sink the batch
+        return lab, None
+
+
+def featurize_subset_parallel(
+    labels, cache_path: str | None = None, jobs: int = 0, progress: bool = False,
+    checkpoint_every: int = 200,
+):
+    """Parallel :func:`featurize_subset` — same cache/resume/superset semantics, many processes.
+
+    Featurization is CPU-bound and independent per decoy (mkdssp writes to unique temp files, so
+    it is process-safe), so it fans out over a ``ProcessPoolExecutor``. ``jobs<=0`` picks
+    ``max(1, cpu_count-2)``. The cache is written every ``checkpoint_every`` *completed* decoys and
+    the skip set is derived from successes only, so a killed run resumes and retries failures —
+    identical to the serial path. Result order is completion order, not input order (irrelevant:
+    graphs and labels stay pairwise-aligned).
+    """
+    import os as _os
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    import torch
+
+    graphs, kept = [], []
+    if cache_path and _os.path.exists(cache_path):
+        blob = torch.load(cache_path, weights_only=False)
+        graphs, kept = blob["graphs"], blob["labels"]
+    kept_keys = {(lab.target, lab.model) for lab in kept}
+    todo = [lab for lab in labels if (lab.target, lab.model) not in kept_keys]
+    if not todo:
+        return graphs, kept
+    if jobs <= 0:
+        jobs = max(1, (_os.cpu_count() or 2) - 2)
+
+    def _save():
+        if cache_path:
+            torch.save({"graphs": graphs, "labels": kept, "done": sorted(kept_keys)}, cache_path)
+
+    done = failed = since_save = 0
+    with ProcessPoolExecutor(max_workers=jobs) as pool:
+        futures = [pool.submit(_featurize_one, lab) for lab in todo]
+        for fut in as_completed(futures):
+            lab, graph = fut.result()
+            done += 1
+            if graph is None:
+                failed += 1
+            else:
+                graphs.append(graph)
+                kept.append(lab)
+                kept_keys.add((lab.target, lab.model))
+            since_save += 1
+            if progress and done % 100 == 0:
+                print(f"  [{done}/{len(todo)}] kept {len(kept)} failed {failed}", flush=True)
+            if since_save >= checkpoint_every:
+                _save()
+                since_save = 0
+
+    _save()
+    if progress:
+        print(
+            f"featurize_subset_parallel: kept {len(kept)}/{len(labels)} "
+            f"({len(todo)} attempted this run, {failed} failed, {jobs} jobs)",
             flush=True,
         )
     return graphs, kept
