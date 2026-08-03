@@ -18,7 +18,7 @@ import glob
 import os
 from dataclasses import dataclass
 
-__all__ = ["DecoyLabel", "load_labels", "resolve_decoy_path", "featurize_subset"]
+__all__ = ["DecoyLabel", "load_labels", "resolve_decoy_path", "featurize_subset", "restrict_to_labels"]
 
 
 @dataclass(frozen=True)
@@ -76,6 +76,22 @@ def load_labels(subset_dir: str, require_files: bool = True) -> list[DecoyLabel]
                 )
             )
     return out
+
+
+def restrict_to_labels(graphs, kept, labels):
+    """Filter an index-aligned ``(graphs, kept)`` pair down to the ``(target, model)`` keys in
+    ``labels``, preserving order.
+
+    :func:`featurize_subset` short-circuits on a complete cache by returning that cache's own
+    (possibly *superset*) contents, so a caller that asked for a strict subset — e.g. after
+    excluding a target — must apply this or the exclusion silently has no effect.
+    """
+    wanted = {(lab.target, lab.model) for lab in labels}
+    pairs = [(g, lab) for g, lab in zip(graphs, kept) if (lab.target, lab.model) in wanted]
+    if not pairs:
+        return [], []
+    g, k = zip(*pairs)
+    return list(g), list(k)
 
 
 def featurize_subset(

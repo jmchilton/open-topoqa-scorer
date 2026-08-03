@@ -12,3 +12,6 @@ checkpoints/
 cache/
 *.pt
 *.pth
+# except the small published eval checkpoints (~145 KB) that back the Phase E numbers
+!models/
+!models/*.pt

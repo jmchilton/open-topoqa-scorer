@@ -27,7 +27,7 @@ from collections import defaultdict
 import numpy as np
 import torch
 
-from open_topoqa_scorer.benchmark import featurize_subset, load_labels
+from open_topoqa_scorer.benchmark import featurize_subset, load_labels, restrict_to_labels
 from open_topoqa_scorer.evaluate import per_target_ranking_metrics, pooled_regression_metrics
 from open_topoqa_scorer.metrics import pearson
 from open_topoqa_scorer.model import ProteinGAT
@@ -41,6 +41,13 @@ _PAPER = {
     "BM55-AF2": {"ranking_loss": 0.069, "pearson": 0.515, "spearman": 0.502},
     "HAF2": {"ranking_loss": 0.110, "pearson": 0.600, "spearman": 0.675},
 }
+
+# Decoy folders that ship in the benchmark tarball are exactly the paper's filtered test set;
+# assert the resolved (targets, decoys) so a partial/corrupt extraction can't silently produce a
+# confident "vs paper" table on the wrong set. Checked before any --drop-target is applied.
+_EXPECTED = {"BM55-AF2": (15, 449), "HAF2": (13, 1370)}
+
+_DEFAULT_CKPT = os.path.join(_ROOT, "models", "scorer_mse_normalized.pt")
 
 
 def _load_model(checkpoint_path: str) -> ProteinGAT:
@@ -67,20 +74,32 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--subset", required=True, help="path to a benchmark subset dir")
     p.add_argument("--cache", default=None, help="featurization cache (default <subset>/_phaseE_cache.pt)")
-    p.add_argument("--checkpoint", default=os.path.join(_ROOT, "checkpoints", "proteingat_best.pt"))
+    p.add_argument("--checkpoint", default=_DEFAULT_CKPT)
     p.add_argument("--featurize-only", action="store_true")
     p.add_argument("--drop-target", nargs="*", default=[], help="targets to exclude (e.g. 7ALA for HAF2-12)")
+    p.add_argument("--no-expect-check", action="store_true", help="skip the resolved-set size assertion")
     args = p.parse_args()
 
+    subset_name = os.path.basename(os.path.normpath(args.subset))
     labels = load_labels(args.subset)
+    if subset_name in _EXPECTED and not args.no_expect_check:
+        got = (len({l.target for l in labels}), len(labels))
+        if got != _EXPECTED[subset_name]:
+            raise SystemExit(
+                f"{subset_name}: resolved {got[0]} targets / {got[1]} decoys, expected "
+                f"{_EXPECTED[subset_name]} — benchmark extraction looks partial/corrupt "
+                f"(pass --no-expect-check to override)"
+            )
     if args.drop_target:
         drop = set(args.drop_target)
         labels = [lab for lab in labels if lab.target not in drop]
-    subset_name = os.path.basename(os.path.normpath(args.subset))
     print(f"{subset_name}: {len(labels)} decoys across {len({l.target for l in labels})} targets", flush=True)
 
     cache = args.cache or os.path.join(args.subset, "_phaseE_cache.pt")
     graphs, kept = featurize_subset(labels, cache_path=cache, progress=True)
+    # A full cache short-circuits featurize_subset and returns its own (superset) contents, so
+    # restrict to the requested label set — otherwise --drop-target silently has no effect.
+    graphs, kept = restrict_to_labels(graphs, kept, labels)
     print(f"featurized {len(graphs)}/{len(labels)} decoys "
           f"({len({l.target for l in kept})} targets)", flush=True)
     if args.featurize_only:
@@ -89,6 +108,8 @@ def main() -> None:
     model = _load_model(args.checkpoint)
     scores = predict(model, graphs).view(-1).tolist()
     result = {
+        "subset": subset_name if not args.drop_target else f"{subset_name}-{len({l.target for l in kept})}",
+        "ckpt": os.path.splitext(os.path.basename(args.checkpoint))[0],
         **pooled_regression_metrics(scores, kept),
         **per_target_ranking_metrics(scores, kept),
         "per_target_pearson_mean": _per_target_pearson_mean(scores, kept),
