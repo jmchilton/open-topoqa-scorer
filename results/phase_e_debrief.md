@@ -79,6 +79,40 @@ retrained: **11,695 train / 2,925 val decoys** (7.7× the subsample; comparable 
 **Conclusion:** corpus scaling was the right first lever and fixed the calibration half of the
 gap; the ranking-loss half is not data-limited.
 
+## Where the gap actually is (diagnostic, 2026-08-03)
+
+Per-target breakdown of the full-corpus MSE model (no upstream code involved):
+
+| set | mean rl | median rl | trimmed (drop worst 2) | neg-Spearman targets | paper mean |
+|-----|---------|-----------|------------------------|----------------------|------------|
+| BM55-AF2 | 0.142 | **0.079** | 0.080 | 5/15 | 0.069 |
+| HAF2-12  | 0.142 | **0.055** | 0.074 | 4/12 | 0.110 |
+| val (730) | 0.044 | 0.000 | — | 243/692 (35%) | — |
+
+1. **The val metric is a poor proxy.** Median val DockQ-spread is **0.07** — most val targets have
+   all decoys at ~equal quality, so ranking loss is trivially ~0 (median 0.000). The MAF2
+   high-quality skew makes val ranking loss look great without testing hard ordering.
+2. **A *typical* benchmark target already matches/beats the paper.** BM55 median 0.079 ≈ paper
+   *mean* 0.069; HAF2 median 0.055 < paper *mean* 0.110. The headline gap is a few catastrophic
+   targets inflating the mean (BM55 top-2 = 51% of the mean; HAF2 top-3 = ~60%).
+3. **The defect is ordering robustness, not calibration.** ~1/3 of targets have **negative
+   Spearman** — ranked backwards (5/15 BM55, 4/12 HAF2, a masked 35% of val). On low-spread targets
+   an inversion is free; on high-spread benchmark targets it is catastrophic (e.g. 4ETQ: picks a
+   0.05-DockQ decoy #1 when best is 0.80, ranking loss 0.75).
+
+Worst-offender targets: BM55 **4ETQ, 6AL0**; HAF2 **7OZN, 7D7F, 7D3Y** (all negative-Spearman,
+large spread).
+
+**Feature-OOD hypothesis — tested and REFUTED.** Standardized-feature magnitude (|z| against the
+model's train-fit buffers) on the inverted targets is essentially identical to the well-ranked
+ones: mean|z| 0.76 vs 0.77, p99 4.0 vs 4.0, tail %|z|>5 *lower* on inverted (0.48 vs 0.61). The
+inversions are **not** feature saturation / out-of-distribution inputs — those targets' features
+sit squarely in the training distribution. So the model inverts them on in-distribution-looking
+inputs: a genuine model/architecture behaviour, not a preprocessing artifact. This is exactly the
+question the external Codex reference disambiguates — do the authors' own artifacts invert the
+*same* targets (→ universally hard) or rank them correctly (→ their architecture/features capture
+something ours misses)?
+
 ## Next levers (revised after corpus scaling)
 
 1. **Checkpoint selection on benchmark ranking loss**, not val MSE — val ranking loss (0.037) and
