@@ -113,7 +113,58 @@ question the external Codex reference disambiguates — do the authors' own arti
 *same* targets (→ universally hard) or rank them correctly (→ their architecture/features capture
 something ours misses)?
 
-## Next levers (revised after corpus scaling)
+## External Codex reference — RESULT (2026-08-03): the question is answered
+
+An independent reproduction ran the **authors' own** released TopoQA (repo commit `118f1e11`,
+checkpoint `model/topoqa.ckpt` sha `78e17eae…`) on the identical DProQ benchmark, on separate
+infrastructure (clean-room-legitimate third party; we never read upstream code). It returned
+numbers + provenance only. Our own `metrics`/`evaluate` code recomputes its per-decoy CSV to the
+byte — metric-code parity confirmed. Three findings, in order of importance:
+
+**1. The paper's correlations are POOLED, not mean-per-target.** Upstream's *pooled* Spearman/Pearson
+are 0.502/0.515 (BM55) and 0.675/0.600 (HAF2-12) — dead-on the paper. Its *mean-per-target* Spearman
+is only **0.178** (BM55) / 0.168 (HAF2-12). We had been comparing our mean-per-target numbers to the
+paper's pooled ones. Apples-to-apples (both pooled): our full-MSE **pooled** Pearson is 0.600 (BM55)
+/ 0.697 (HAF2-12) — we **beat** upstream's 0.515 / 0.600. Mean-per-target too: ours 0.29/0.25 Spearman
+> upstream's 0.18/0.17. **On every correlation metric we match or beat a correctly-run TopoQA.**
+
+**2. ~1/3 of the paper's HAF2 ranking-loss lead is a coordinate bug.** Released code exhibits the
+`(x,y,y)` edge-coordinate behaviour (confirmed yes). Correcting it to `(x,y,z)` — what our clean
+featurizer does — moves upstream's ranking loss:
+
+| set | paper | upstream as-shipped `(x,y,y)` | upstream corrected `(x,y,z)` | ours (full-MSE, correct) |
+|-----|-------|-------------------------------|------------------------------|--------------------------|
+| BM55-AF2 | 0.069 | 0.0694 | 0.0767 | 0.142 |
+| HAF2-12  | 0.110 | 0.1103 | 0.1471 | 0.142 |
+
+On **HAF2-12 we are at parity** with a correctly-implemented TopoQA (0.142 vs 0.147). Our whole
+"gap" there was declining to reproduce their bug.
+
+**3. The entire BM55 residual gap is TWO targets.** Per-decoy diff of our full-MSE model vs
+upstream on BM55:
+
+| target | upstream rl | our rl | upstream Spearman | our Spearman |
+|--------|-------------|--------|-------------------|--------------|
+| 4ETQ | 0.000 | **0.750** | +0.19 | +0.17 |
+| 6AL0 | 0.000 | **0.343** | +0.47 | +0.35 |
+
+`(0.750+0.343)/15 = 0.073` = the full BM55 mean gap (0.142−0.069). The other 13 targets are
+balanced (we win 5WK3, lose 5CBA, etc.). Crucially our **Spearman on 4ETQ/6AL0 matches upstream** —
+overall ordering is fine; only our **top-1 pick** collapses (crowns a ~0.05-DockQ decoy). Not a
+systemic defect: two pathological top-1 selections on specific decoys.
+
+**Bottom line.** Our clean-room reimplementation, using *correct* coordinates, matches or beats a
+correctly-run TopoQA on all correlation metrics and on HAF2 ranking loss; the only residual is 2
+BM55 targets' top-1 picks. The paper's headline ranking-loss numbers reproduce exactly — but depend
+on the `(x,y,y)` bug for a third of the HAF2 margin. Reference artifacts:
+`topoqa-replication-report.md`, `topoqa-per-decoy-predictions.csv` (sha `13fd625d…`) in the foundry
+repo root; upstream predictions used for **diagnosis only**, never as a training/tuning target.
+
+## Next levers (revised after the Codex reference)
+
+0. **Debug the two BM55 top-1 collapses (4ETQ, 6AL0).** Isolate the single decoy our model
+   over-scores on each; check its node/edge features vs the true-best decoy. Bounded and concrete —
+   this is now the *only* thing between us and full parity. (Supersedes the open-ended items below.)
 
 1. **Checkpoint selection on benchmark ranking loss**, not val MSE — val ranking loss (0.037) and
    benchmark ranking loss (0.14) diverge; we may be selecting the wrong epoch for the target metric.
