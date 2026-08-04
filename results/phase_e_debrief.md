@@ -162,9 +162,24 @@ repo root; upstream predictions used for **diagnosis only**, never as a training
 
 ## Next levers (revised after the Codex reference)
 
-0. **Debug the two BM55 top-1 collapses (4ETQ, 6AL0).** Isolate the single decoy our model
-   over-scores on each; check its node/edge features vs the true-best decoy. Bounded and concrete —
-   this is now the *only* thing between us and full parity. (Supersedes the open-ended items below.)
+0. **Debug the two BM55 top-1 collapses (4ETQ, 6AL0) — DONE (2026-08-03).** Not a feature bug; the
+   two targets fail by different mechanisms, neither systemic:
+   - **4ETQ** — our score spread is fine (std 0.223 ≈ upstream 0.241). One **deceptive decoy**
+     (`model_3…_545936`, true DockQ **0.047**) is scored ~**0.764 by BOTH** our and upstream models
+     (upstream ranks it #2). Upstream wins only because it scores the true-best 0.864 vs our 0.727 —
+     a **0.037 score-noise margin** flips the top-1 and costs 0.75 ranking loss. Near-irreducible for
+     a single model.
+   - **6AL0** — genuine **top-cluster compression**: our score std **0.086** vs upstream **0.225**
+     (2.6× tighter). The true-best (`…_840023`, 0.605) and several ~0.26-DockQ decoys all land within
+     0.012 of each other for us; upstream separates them.
+   - **Ranking-loss training does not help** — our `scorer_full_ranking.pt` is *worse* on both
+     (4ETQ 0.750→0.760, 6AL0 0.343→0.348) and compresses 6AL0 further (std 0.086→0.041). Margin loss
+     is the wrong lever.
+   - Upstream is a **single** checkpoint (not ensembled), so its win is single-model calibration the
+     paper never pins (width / epochs / lr / dropout). Closing the last 0.073 on BM55 needs a
+     hyperparameter/capacity search we can't derive from the paper — for a prize on *one* of two test
+     sets where we're already at parity on the other. Verdict: **diminishing returns; this is tuning,
+     not a defect.**
 
 1. **Checkpoint selection on benchmark ranking loss**, not val MSE — val ranking loss (0.037) and
    benchmark ranking loss (0.14) diverge; we may be selecting the wrong epoch for the target metric.
