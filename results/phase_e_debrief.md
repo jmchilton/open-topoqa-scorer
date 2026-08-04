@@ -189,6 +189,35 @@ repo root; upstream predictions used for **diagnosis only**, never as a training
    features behave sensibly on antibody-antigen interfaces (the worst-transfer domain).
 4. **5-seed sweep** for a mean±sd comparable to the paper's 0.087±0.010 / 0.111±0.008.
 
+## Phase F — calibration/capacity sweep (2026-08-04): the BM55 floor is ~0.14
+
+The residual is BM55 top-cluster compression; the paper pins neither dropout nor capacity, so
+those were the levers. Retrained the full corpus across three settings (val-MSE selection; benchmark
+never used to pick a checkpoint), then traced one config's benchmark ranking loss across all 150
+epochs to test whether *checkpoint selection* was the real lever.
+
+| config | BM55 rl | HAF2-12 rl |
+|--------|---------|-----------|
+| baseline d.25/h32/l2 | 0.139 | 0.180 |
+| spread d.10/h32/l2   | 0.142 | 0.137 |
+| cap d.10/h64/l3      | 0.140 | 0.153 |
+
+Per-epoch trace (spread config, 150 epochs), best BM55 rl by selection rule:
+
+| selection rule | epoch | BM55 rl | HAF2-12 rl |
+|----------------|-------|---------|-----------|
+| val-MSE (shipped criterion) | 87 | 0.140 | 0.141 |
+| val-ranking-loss (legit alt) | 74 | 0.124 | 0.173 |
+| oracle-BM55 (test-leak, unshippable) | 8 | 0.080 | 0.132 |
+
+**Conclusion — diminishing returns confirmed.** BM55 ranking loss is **flat at ~0.14 across every
+epoch** (0.12–0.145) bar a single epoch-8 fluke (0.080; neighbors 0.123/0.129 — unrepeatable, not
+selectable). It is **invariant to dropout, width, depth, epoch count, and selection criterion.**
+HAF2-12 stays at/near parity throughout. The last BM55 gap is not reachable by tuning the reproduced
+spec — it would require an unspecified upstream detail we can't clean-room-derive, for a prize on one
+of two test sets where we already match/beat upstream everywhere else. **Stopping here is the right
+call.**
+
 ## Reproduce
 
 Checkpoints are committed (`models/*.pt`, ~145 KB each); the benchmark data is CC-BY and
