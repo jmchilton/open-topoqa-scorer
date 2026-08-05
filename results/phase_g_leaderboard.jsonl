@@ -1,0 +1,4 @@
+{"subset": "BM55-AF2", "method": "interface_plddt", "n": 449, "targets_total": 15, "targets_ranked": 15, "spearman_mean": 0.04734196841982142, "ranking_loss_mean": 0.1386, "top10_success_rate": 0.8}
+{"subset": "BM55-AF2", "method": "global_plddt", "n": 449, "targets_total": 15, "targets_ranked": 15, "spearman_mean": 0.12268456195802338, "ranking_loss_mean": 0.13926666666666668, "top10_success_rate": 0.8}
+{"subset": "HAF2-12", "method": "interface_plddt", "n": 1270, "targets_total": 12, "targets_ranked": 12, "spearman_mean": 0.0013919766962396385, "ranking_loss_mean": 0.14283333333333337, "top10_success_rate": 0.8333333333333334}
+{"subset": "HAF2-12", "method": "global_plddt", "n": 1270, "targets_total": 12, "targets_ranked": 12, "spearman_mean": -0.09441854154007838, "ranking_loss_mean": 0.13608333333333336, "top10_success_rate": 0.8333333333333334}
