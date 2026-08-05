@@ -34,9 +34,13 @@ residues, ranked per target; training-free. Higher = predicted-better. `scripts/
 
 **Reading Table A — the honest finding:**
 
-1. **On top-1 ranking loss, a training-free AF-confidence baseline ties or edges our model on both
-   sets** (pLDDT-global 0.139 / 0.136 vs ours 0.142 / 0.142). The topological step buys ~nothing on
-   this one metric.
+1. **On top-1 ranking loss, a training-free AF-confidence baseline is competitive with our model on
+   both sets** (pLDDT-global 0.139 / 0.136 vs ours 0.142 / 0.142). *Caveat — "ours" here is the single
+   shipped `scorer_full_mse` checkpoint, which sits at the bad end of the seed spread: the same
+   architecture's 3-seed mean (P6a) is **0.126** on BM55, which actually beats pLDDT's 0.139. So on
+   BM55 the "tie/edge" is within seed-noise and if anything favors ours; on HAF2 pLDDT is genuinely at
+   least as good (P6a full mean 0.164 > 0.136).* Either way, the topological step buys ~nothing
+   **reliably** on this one metric — which is the point: it is saturated.
 2. **But top-1 ranking loss is nearly uninformative here.** pLDDT achieves it with ~zero or *negative*
    rank correlation (Spearman 0.05 / 0.12 on BM55, 0.00 / −0.09 on HAF2) — it is not ordering decoys by
    quality, it just avoids a catastrophic #1 pick on these AF-generated pools (where the most-confident
@@ -85,9 +89,10 @@ them as head-to-head with Table A.
 ## Verdict
 
 - **Is the step competitive?** On the practical "rank a target's decoys" task, **AF-Multimer pLDDT is a
-  strong, free baseline that our topological model does *not* beat on top-1 ranking loss** — but that
-  metric is saturated on these sets. On the metrics that reflect actual ranking quality (Spearman,
-  top-10), the topological model is clearly the better ranker than AF confidence.
+  strong, free baseline that trades top-1 blows with our model** — the top-1 ranking-loss differences
+  (either direction) are within the seed-noise this metric carries on 12–15 targets, so neither
+  reliably wins it. On the metrics that reflect actual ranking *quality* (Spearman, top-10), the
+  topological model is clearly the better ranker than AF confidence.
 - **Practical guidance that falls out:** if a user only wants the single best pose, plain AF confidence
   is competitive and free; the topological QA step pays off when they want a *trustworthy ordering* or
   a top-k shortlist.
@@ -95,8 +100,11 @@ them as head-to-head with Table A.
   non-topological trained model (DProQA) reports the best DBM55-AF2 number of all — motivating the one
   deferred arm below.
 
-## Deferred (from #12)
+## Notes / deferred (from #12)
+- **`global_plddt` is unguarded against hetero residues** (waters/ligands with junk B-factors would
+  dilute it); AF-Multimer decoys here are protein-only so it is harmless in practice, and the primary
+  `interface_plddt` arm is safe (it only touches `interface_nodes`).
+- **P6a attribution ablation** is done — see `results/p6a_ablation.md`. It complements this competitive
+  view: topology's value is generalizable rank quality, not top-1.
 - **Same-protocol external re-run** of DProQ/DProQA (and, if recoverable, AF2Rank) on these identical
   decoys, to promote Table B rows into Table A. This is the fair way to test the DProQA 0.049 claim.
-- **P6a attribution ablation** (full / conventional-32 / topological-140) — isolates what the PH block
-  contributes *within* our model; complementary to this competitive view.
