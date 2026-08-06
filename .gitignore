@@ -10,6 +10,8 @@ zenodo/
 data/
 checkpoints/
 cache/
+results/dproqa_work/
+results/*.log
 *.pt
 *.pth
 # except the small published eval checkpoints (~145 KB) that back the Phase E numbers

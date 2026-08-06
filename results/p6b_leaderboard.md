@@ -20,17 +20,23 @@ residues, ranked per target; training-free. Higher = predicted-better. `scripts/
 
 | Method | ranking loss ↓ | Spearman ↑ | top-10 success ↑ |
 |---|---|---|---|
+| DProQA (same-protocol) | **0.060** | 0.159 | 0.800 |
 | **Topological (ours)** | 0.142 | **0.291** | **0.867** |
 | pLDDT (interface) | 0.139 | 0.047 | 0.800 |
-| pLDDT (global) | **0.139** | 0.123 | 0.800 |
+| pLDDT (global) | 0.139 | 0.123 | 0.800 |
 
 ### HAF2-12 (12 targets / 1270 decoys)
 
 | Method | ranking loss ↓ | Spearman ↑ | top-10 success ↑ |
 |---|---|---|---|
+| DProQA (same-protocol) | 0.200 | 0.008 | 0.833 |
 | **Topological (ours)** | 0.142 | **0.249** | 0.833 |
 | pLDDT (interface) | 0.143 | 0.001 | 0.833 |
 | pLDDT (global) | **0.136** | −0.094 | 0.833 |
+
+DProQA = the trained non-topological competitor, run on these exact decoys via the same metric — see
+`results/dproqa_rerun.md`. Its published rows (Table B) hold up decoy-for-decoy (0.049→0.060,
+0.195→0.200), so it is promoted here into Table A.
 
 **Reading Table A — the honest finding:**
 
@@ -46,10 +52,17 @@ residues, ranked per target; training-free. Higher = predicted-better. `scripts/
    quality, it just avoids a catastrophic #1 pick on these AF-generated pools (where the most-confident
    model is usually decent). This matches the earlier replication finding that the BM55 gap was two
    targets' top-1 picks — the metric saturates.
-3. **Where topology earns its keep is ranking quality, not top-1.** Our model is the only one with
-   meaningful positive Spearman (0.25–0.29) and it wins top-10 success on BM55 (0.87 vs 0.80). If you
-   are selecting top-k or trusting the ordering, the topological model is genuinely better than AF
-   confidence; if you only ever take the single top pose, it is not.
+3. **A trained non-topological model (DProQA) beats the topological one on top-1 — and it *also* barely
+   ranks.** DProQA's same-protocol top-1 ranking loss is **0.060 on BM55** (less than half our 0.142,
+   better than pLDDT) and 0.200 on HAF2. But its Spearman is 0.159 (BM55) and **0.008 (HAF2) — zero**.
+   So the second, stronger competitor repeats pLDDT's pattern: it wins the headline metric while
+   carrying essentially no rank information on the harder set. Two independent competitors beating top-1
+   ranking loss with near-zero rank correlation is decisive evidence the metric is saturated.
+4. **Where topology earns its keep is ranking quality, not top-1.** Our model is the only method with
+   meaningful positive Spearman on **both** sets (0.25–0.29) — higher than DProQA on both and the only
+   positive number on HAF2 — and it wins top-10 success on BM55 (0.87 vs 0.80). If you are selecting
+   top-k or trusting the ordering, the topological model is genuinely the best ranker here; if you only
+   ever take the single top pose, DProQA (or even free pLDDT) is better.
 
 *(Note: the ranking-loss-trained variant `scorer_full_ranking` does marginally better on ranking loss —
 BM55 0.140, HAF2-12 0.133 — with similar Spearman; it does not change the conclusion.)*
@@ -81,24 +94,29 @@ them as head-to-head with Table A.
   selection. So the paper's own row overstates the topological approach.
 - **The other tools' numbers come from their own papers'** filtering/metric, which we have not
   verified matches ours decoy-for-decoy. DProQA's 0.049 on DBM55-AF2 (a non-topological gated graph
-  transformer beating everything on that set) is the standout — but it is exactly the kind of claim
-  that needs a **same-protocol re-run** before we trust it against Table A.
+  transformer beating everything on that set) was the standout — and it has now been **re-run
+  same-protocol** (moved to Table A): it holds (0.060 / 0.200 vs published 0.049 / 0.195). The
+  remaining Table B rows (AF2Rank, GOAP, ZRANK2, GNN-DOVE, ComplexQA, TRScore) are still unverified.
 
 ---
 
 ## Verdict
 
-- **Is the step competitive?** On the practical "rank a target's decoys" task, **AF-Multimer pLDDT is a
-  strong, free baseline that trades top-1 blows with our model** — the top-1 ranking-loss differences
-  (either direction) are within the seed-noise this metric carries on 12–15 targets, so neither
-  reliably wins it. On the metrics that reflect actual ranking *quality* (Spearman, top-10), the
-  topological model is clearly the better ranker than AF confidence.
-- **Practical guidance that falls out:** if a user only wants the single best pose, plain AF confidence
-  is competitive and free; the topological QA step pays off when they want a *trustworthy ordering* or
-  a top-k shortlist.
-- **The literature's headline overstates topology** (bug-inflated TopoQA row), and a strong
-  non-topological trained model (DProQA) reports the best DBM55-AF2 number of all — motivating the one
-  deferred arm below.
+- **Is the step competitive?** On the practical "rank a target's decoys" task, **two independent
+  competitors beat or match our model on top-1 ranking loss**: free AF-Multimer pLDDT trades blows
+  within seed-noise, and the trained non-topological DProQA wins outright on BM55 (0.060 vs 0.142).
+  **But both do it with near-zero rank correlation** (pLDDT Spearman ≈0.05–0.12 / −0.09; DProQA 0.159 /
+  0.008). On the metrics that reflect actual ranking *quality* (Spearman, top-10), the topological model
+  is the best ranker of the three on both sets — the only one with positive Spearman on HAF2.
+- **What that means for the metric:** top-1 ranking loss — the QA literature's headline — is saturated;
+  it is won here by methods that do not rank. The topological approach's defensible value is
+  rank-ordering quality, which that headline metric hides.
+- **Practical guidance that falls out:** if a user only wants the single best pose, DProQA (or even free
+  AF pLDDT) is competitive-to-better; the topological QA step pays off when they want a *trustworthy
+  ordering* or a top-k shortlist.
+- **The literature's headline overstates topology** (bug-inflated TopoQA row), while DProQA's strong
+  DBM55-AF2 number **holds up** under a same-protocol re-run (`results/dproqa_rerun.md`) — that deferred
+  arm is now done.
 
 ## Notes / deferred (from #12)
 - **`global_plddt` is unguarded against hetero residues** (waters/ligands with junk B-factors would
@@ -106,5 +124,12 @@ them as head-to-head with Table A.
   `interface_plddt` arm is safe (it only touches `interface_nodes`).
 - **P6a attribution ablation** is done — see `results/p6a_ablation.md`. It complements this competitive
   view: topology's value is generalizable rank quality, not top-1.
-- **Same-protocol external re-run** of DProQ/DProQA (and, if recoverable, AF2Rank) on these identical
-  decoys, to promote Table B rows into Table A. This is the fair way to test the DProQA 0.049 claim.
+- **Same-protocol external re-run of DProQA** is **done** — see `results/dproqa_rerun.md` and Table A.
+  The 0.049 / 0.195 claims hold decoy-for-decoy (0.060 / 0.200).
+- **AF2Rank is deferred to a GPU machine, not run here.** It requires the full AlphaFold2 codebase +
+  ~5 GB of params and runs an AF-Multimer forward pass per decoy — infeasible on this GPU-less arm64
+  laptop (days–weeks of CPU over ~1720 decoys), and AF2Rank ships monomer-only so the complex setup is
+  itself an adaptation. Marginal value is low: its published BM55 loss (0.261) is already the worst
+  trained method here, and its core idea — *rank by AlphaFold confidence* — is already represented in
+  Table A by the training-free pLDDT arm. Revisit on GPU only if a full leaderboard is wanted.
+- The other Table B tools (GOAP, ZRANK2, GNN-DOVE, ComplexQA, TRScore) remain unverified.
